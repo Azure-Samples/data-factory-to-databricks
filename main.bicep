@@ -6,9 +6,15 @@ param administratorLogin string = 'myadminname'
 
 @description('The administrator password of the SQL logical server.')
 @secure()
-param administratorLoginPassword string
+param administratorLoginPassword string = newGuid()
 
-@description('The username that is deploying, the databricks workpace of the user will have the notebook')
+@description('The object id of the previous user')
+param userObjectId string
+
+@description('The tenant id of the previous user')
+param userTenantId string
+
+@description('The username that is deploying, the databricks workpace of the user will have the notebook and The Microsoft Entra ID user to be database admin')
 param username string
 
 @description('Specifies the Azure Active Directory tenant ID that should be used for authenticating requests to the key vault. Get it by using Get-AzSubscription cmdlet.')
@@ -30,11 +36,12 @@ var sqlDBName = 'SampleDB-${uniqueName}'
 var keyVaultName = 'dbricksKV${uniqueName}'
 @description('The adf Key Vault name.')
 var adfKeyVaultName = 'adfkeyVault${uniqueName}'
+@description('Log Analytic Workspace')
+var logAnalyticsWorkspaceName = 'datafactoryworkpace-${uniqueName}'
 
 var httpNYHealhDataLinkedServiceName = 'httpNYHealhData_LS'
 var dataLakeStoreLinkedServiceName = 'dataLakeStore_LS'
 var sqlServerLinkedServiceName = 'sqlServer_LS'
-var keyVaultLinkedServiceName = 'keyVault_LS'
 var databricksLinkedServiceName = 'databricks_LS'
 var dataFactoryDataSetInName = 'babyNamesNY_DS'
 var csvDataSetName = 'storeLandingZoneBabyNames_DS'
@@ -55,10 +62,7 @@ var storageBlobDataContributorRole = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 ) //Storage Blob Data Contributor
-var keyVaultSecretsUserRole = subscriptionResourceId(
-  'Microsoft.Authorization/roleDefinitions',
-  '4633458b-17de-408a-b874-0445c86b69e6'
-) //Key Vault Secrets User
+
 // --- Resources
 
 resource dataFactoryUserIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2021-09-30-preview' = {
@@ -107,7 +111,7 @@ resource dataLakeStoreLinkedService 'Microsoft.DataFactory/factories/linkedservi
   properties: {
     type: 'AzureBlobFS'
     typeProperties: {
-      url: 'https://${dataLakeStore.name}.dfs.core.windows.net/'
+      url: 'https://${dataLakeStore.name}.dfs.${environment().suffixes.storage}/'
       credential: {
         referenceName: credential.name
         type: 'CredentialReference'
@@ -148,27 +152,7 @@ resource sqlServerLinkedService 'Microsoft.DataFactory/factories/linkedservices@
       encrypt: 'mandatory'
       trustServerCertificate: false
       hostNameInCertificate: ''
-      authenticationType: 'SQL'
-      userName: 'myadminname'
-      password: {
-        type: 'AzureKeyVaultSecret'
-        store: {
-          referenceName: 'keyVault_LS'
-          type: 'LinkedServiceReference'
-        }
-        secretName: 'dbPassword'
-      }
-    }
-  }
-}
-
-resource keyVaultLinkedService 'Microsoft.DataFactory/factories/linkedservices@2018-06-01' = {
-  parent: dataFactory
-  name: keyVaultLinkedServiceName
-  properties: {
-    type: 'AzureKeyVault'
-    typeProperties: {
-      baseUrl: adfKv.properties.vaultUri
+      authenticationType: 'UserAssignedManagedIdentity'
       credential: {
         referenceName: credential.name
         type: 'CredentialReference'
@@ -403,8 +387,8 @@ resource dataFactoryPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-
           }
           sink: {
             type: 'AzureSqlSink'
-            sqlWriterStoredProcedureName: '[dbo].[spOverwriteDimNames]'
-            sqlWriterTableType: 'DimNamesType'
+            sqlWriterStoredProcedureName: '[data].[spOverwriteDimNames]'
+            sqlWriterTableType: '[data].[DimNamesType]'
             storedProcedureTableTypeParameterName: 'DimNames'
             disableMetricsCollection: false
           }
@@ -500,8 +484,8 @@ resource dataFactoryPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-
           }
           sink: {
             type: 'AzureSqlSink'
-            sqlWriterStoredProcedureName: '[dbo].[spOverwriteDimLocations]'
-            sqlWriterTableType: 'DimLocationsType'
+            sqlWriterStoredProcedureName: '[data].[spOverwriteDimLocations]'
+            sqlWriterTableType: '[data].[DimLocationsType]'
             storedProcedureTableTypeParameterName: 'DimLocations'
             disableMetricsCollection: false
           }
@@ -585,8 +569,8 @@ resource dataFactoryPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-
           }
           sink: {
             type: 'AzureSqlSink'
-            sqlWriterStoredProcedureName: '[dbo].[spOverwriteDimYears]'
-            sqlWriterTableType: 'DimYearsType'
+            sqlWriterStoredProcedureName: '[data].[spOverwriteDimYears]'
+            sqlWriterTableType: '[data].[DimYearsType]'
             storedProcedureTableTypeParameterName: 'DimYears'
             disableMetricsCollection: false
           }
@@ -682,8 +666,8 @@ resource dataFactoryPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-
           }
           sink: {
             type: 'AzureSqlSink'
-            sqlWriterStoredProcedureName: '[dbo].[spOverwriteFactBabyNamesType]'
-            sqlWriterTableType: 'FactBabyNamesType'
+            sqlWriterStoredProcedureName: '[data].[spOverwriteFactBabyNamesType]'
+            sqlWriterTableType: '[data].[FactBabyNamesType]'
             storedProcedureTableTypeParameterName: 'FactBabyNames'
             disableMetricsCollection: false
           }
@@ -837,7 +821,7 @@ resource adfToDataLakeStoreContributorRoleAssignment 'Microsoft.Authorization/ro
     roleDefinitionId: storageBlobDataContributorRole
     principalId: dataFactoryUserIdentity.properties.principalId
   }
-  dependsOn:[
+  dependsOn: [
     databricksWorkpace
   ]
 }
@@ -936,55 +920,15 @@ resource accountKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   }
 }
 
-resource adfKv 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: adfKeyVaultName
-  location: location
-  properties: {
-    enabledForDeployment: false
-    enabledForDiskEncryption: false
-    enabledForTemplateDeployment: false
-    tenantId: tenantId
-    enableSoftDelete: true
-    softDeleteRetentionInDays: 90
-    accessPolicies: []
-    sku: {
-      name: 'standard'
-      family: 'A'
-    }
-    networkAcls: {
-      defaultAction: 'Allow'
-      bypass: 'AzureServices'
-    }
-    enableRbacAuthorization: true
-  }
-}
-
-resource adfToKeyVaultSecretsUserRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(adfKv.id, dataFactoryUserIdentity.id, 'Contributor')
-  scope: adfKv
-  properties: {
-    roleDefinitionId: keyVaultSecretsUserRole
-    principalId: dataFactoryUserIdentity.properties.principalId
-  }
-  dependsOn:[
-    databricksWorkpace
-  ]
-}
-
-resource dbPassKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: adfKv
-  name: 'dbPassword'
-  properties: {
-    value: administratorLoginPassword
-  }
-}
-
 resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
   name: serverName
   location: location
   properties: {
     administratorLogin: administratorLogin
     administratorLoginPassword: administratorLoginPassword
+    minimalTlsVersion: '1.2'
+    version: '12.0'
+    publicNetworkAccess: 'Enabled'
   }
   resource allowAzureServicesRule 'firewallRules' = {
     name: 'AllowAllWindowsAzureIps'
@@ -993,6 +937,35 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
       endIpAddress: '0.0.0.0'
     }
   }
+  identity: {
+    type: 'SystemAssigned'
+  }
+  resource activeDirectoryAdmin 'administrators@2023-08-01-preview' = {
+    name: 'ActiveDirectory'
+    properties: {
+      administratorType: 'ActiveDirectory'
+      login: username
+      sid: userObjectId
+      tenantId: userTenantId
+    }
+  }
+  resource sqlADOnlyAuth 'azureADOnlyAuthentications@2023-08-01-preview' = {
+    name: 'Default'
+    properties: {
+      azureADOnlyAuthentication: true
+    }
+    dependsOn: [
+      activeDirectoryAdmin
+    ]
+  }
+}
+
+resource diagnosticSettingsSqlServer 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  scope: sqlServer
+  name: '${sqlServer.name}-diag'
+  properties: {
+    workspaceId: logAnalyticsWorkspace.id
+  }
 }
 
 resource sqlDB 'Microsoft.Sql/servers/databases@2023-08-01-preview' = {
@@ -1000,14 +973,110 @@ resource sqlDB 'Microsoft.Sql/servers/databases@2023-08-01-preview' = {
   name: sqlDBName
   location: location
   sku: {
-    name: 'Standard'
-    tier: 'Standard'
-    capacity: 10
+    name: 'Basic'
+    tier: 'Basic'
+    capacity: 5
   }
   properties: {
     zoneRedundant: false
     readScale: 'Disabled'
     requestedBackupStorageRedundancy: 'Local'
+  }
+  dependsOn: [
+    sqlServer::sqlADOnlyAuth
+    sqlServer::activeDirectoryAdmin
+    auditingServerSettings
+    sqlVulnerabilityAssessment
+  ]
+}
+
+resource auditingDbSettings 'Microsoft.Sql/servers/databases/auditingSettings@2023-08-01-preview' = {
+  parent: sqlDB
+  name: 'default'
+  properties: {
+    retentionDays: 0
+    auditActionsAndGroups: [
+      'SUCCESSFUL_DATABASE_AUTHENTICATION_GROUP'
+      'FAILED_DATABASE_AUTHENTICATION_GROUP'
+      'BATCH_COMPLETED_GROUP'
+    ]
+    isAzureMonitorTargetEnabled: true
+    isManagedIdentityInUse: false
+    state: 'Enabled'
+    storageAccountSubscriptionId: '00000000-0000-0000-0000-000000000000'
+  }
+}
+
+resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2021-06-01' = {
+  name: logAnalyticsWorkspaceName
+  location: location
+  properties: {
+    sku: {
+      name: 'PerGB2018' // Example SKU, adjust as needed
+    }
+    retentionInDays: 30 // Adjust retention period as needed
+  }
+}
+
+resource diagnosticSettingsSqlDb 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  scope: sqlDB
+  name: '${sqlDB.name}-diag'
+  properties: {
+    workspaceId: logAnalyticsWorkspace.id
+    logs: [
+      {
+        category: 'SQLSecurityAuditEvents'
+        enabled: true
+        retentionPolicy: {
+          days: 0
+          enabled: false
+        }
+      }
+    ]
+  }
+}
+
+resource auditingServerSettings 'Microsoft.Sql/servers/auditingSettings@2021-11-01-preview' = {
+  parent: sqlServer
+  name: 'default'
+  properties: {
+    state: 'Enabled'
+    isAzureMonitorTargetEnabled: true
+    auditActionsAndGroups: [
+      'SUCCESSFUL_DATABASE_AUTHENTICATION_GROUP'
+      'FAILED_DATABASE_AUTHENTICATION_GROUP'
+      'BATCH_COMPLETED_GROUP'
+    ]
+  }
+}
+
+resource sqlVulnerabilityAssessment 'Microsoft.Sql/servers/sqlVulnerabilityAssessments@2022-11-01-preview' = {
+  name: 'default'
+  parent: sqlServer
+  properties: {
+    state: 'Enabled'
+  }
+  dependsOn: [
+    auditingServerSettings
+  ]
+}
+
+resource solutions_SQLAuditing_githubmetrics 'Microsoft.OperationsManagement/solutions@2015-11-01-preview' = {
+  name: 'SolutionSQLAuditing${logAnalyticsWorkspace.name}'
+  location: location
+  plan: {
+    name: 'SQLAuditing${sqlDB.name}'
+    promotionCode: ''
+    product: 'SQLAuditing'
+    publisher: 'Microsoft'
+  }
+  properties: {
+    workspaceResourceId: logAnalyticsWorkspace.id
+    containedResources: [
+      '${resourceId('Microsoft.OperationalInsights/workspaces', logAnalyticsWorkspace.name)}/views/SQLSecurityInsights'
+      '${resourceId('Microsoft.OperationalInsights/workspaces', logAnalyticsWorkspace.name)}/views/SQLAccessToSensitiveData'
+    ]
+    referencedResources: []
   }
 }
 
