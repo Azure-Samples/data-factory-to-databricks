@@ -49,7 +49,7 @@ With our map in hand, we create a resource group in our chosen location:
 Using a Bicep template, we deploy the resources needed for our data processing quest:
 
 ```bash
-  az deployment group create -f ./main.bicep -g ${RESOURCEGROUP} -p username=${USERNAME} userObjectId=${USER_OBJECTID} userTenantId=${USER_TENANTID}
+  az deployment group create -f ./main.bicep -g ${RESOURCEGROUP} -p username=${USERNAME} userObjectId=${USER_OBJECTID} userTenantId=${USER_TENANTID} secretsExpirationDate=$(date -d "+1 year" +"%s")
 ```
 
 ![Contoso’s Created Resources](Resources.jpg "Contoso’s Created Resources")
@@ -98,7 +98,7 @@ To create a personal access token, do the following:
     #  Upload databricks notebook using databriks cli
 
     # Authenticate databricks cli
-    export DATABRICKS_WORKPACE_URL=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksWorkpaceUrl.value --output tsv)
+    export DATABRICKS_WORKPACE_URL=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksWorkspaceUrl.value --output tsv)
     databricks configure --host $DATABRICKS_WORKPACE_URL
     # For the prompt Personal Access Token, enter the Azure Databricks personal access token for your workspace
 
@@ -187,11 +187,9 @@ When you're done, delete the resources and the resource group:
 
 ```bash
 export DATABRICKS_KEY_VAULT_NAME=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksKeyVaultName.value --output tsv)
-export ADF_KEY_VAULT_NAME=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.adfKeyVaultName.value --output tsv)
 
 az group delete -n $RESOURCEGROUP -y
 az keyvault purge --name $DATABRICKS_KEY_VAULT_NAME
-az keyvault purge --name $ADF_KEY_VAULT_NAME
 ```
 
 ## Contributions

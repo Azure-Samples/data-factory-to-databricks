@@ -20,6 +20,8 @@ param username string
 @description('Specifies the Azure Active Directory tenant ID that should be used for authenticating requests to the key vault. Get it by using Get-AzSubscription cmdlet.')
 param tenantId string = subscription().tenantId
 
+param secretsExpirationDate int
+
 // --- Variables
 var uniqueName = uniqueString(resourceGroup().id)
 @description('Data Factory Name')
@@ -126,8 +128,8 @@ resource databriksLinkedService 'Microsoft.DataFactory/factories/linkedservices@
   properties: {
     type: 'AzureDatabricks'
     typeProperties: {
-      domain: 'https://${databricksWorkpace.properties.workspaceUrl}'
-      workspaceResourceId: databricksWorkpace.id
+      domain: 'https://${databricksWorkspace.properties.workspaceUrl}'
+      workspaceResourceId: databricksWorkspace.id
       credential: {
         referenceName: credential.name
         type: 'CredentialReference'
@@ -765,7 +767,7 @@ resource managedResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' ex
   name: managedResourceGroupName
 }
 
-resource databricksWorkpace 'Microsoft.Databricks/workspaces@2018-04-01' = {
+resource databricksWorkspace 'Microsoft.Databricks/workspaces@2018-04-01' = {
   name: workspaceName
   location: location
   sku: {
@@ -781,9 +783,28 @@ resource databricksWorkpace 'Microsoft.Databricks/workspaces@2018-04-01' = {
   }
 }
 
+resource WorkspaceGeneralLogs 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'databricksDiagnostics'
+  scope: databricksWorkspace
+  properties: {
+    workspaceId: logAnalyticsWorkspace.id
+    metrics: []
+    logs: [
+      {
+        categoryGroup: 'allLogs'
+        enabled: true
+        retentionPolicy: {
+          days: 0
+          enabled: false
+        }
+      }
+    ]
+  }
+}
+
 resource adfToDataBricksContributorRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(databricksWorkpace.id, dataFactoryUserIdentity.id, 'Contributor')
-  scope: databricksWorkpace
+  name: guid(databricksWorkspace.id, dataFactoryUserIdentity.id, 'Contributor')
+  scope: databricksWorkspace
   properties: {
     roleDefinitionId: contributorRole
     principalId: dataFactoryUserIdentity.properties.principalId
@@ -822,7 +843,7 @@ resource adfToDataLakeStoreContributorRoleAssignment 'Microsoft.Authorization/ro
     principalId: dataFactoryUserIdentity.properties.principalId
   }
   dependsOn: [
-    databricksWorkpace
+    databricksWorkspace
   ]
 }
 
@@ -909,6 +930,9 @@ resource accountNameSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   name: 'accountName'
   properties: {
     value: dataLakeStore.name
+    attributes: {
+      exp: secretsExpirationDate
+    }
   }
 }
 
@@ -917,6 +941,9 @@ resource accountKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   name: 'accountKey'
   properties: {
     value: dataLakeStore.listKeys().keys[0].value
+    attributes: {
+      exp: secretsExpirationDate
+    }
   }
 }
 
@@ -949,6 +976,7 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
       tenantId: userTenantId
     }
   }
+
   resource sqlADOnlyAuth 'azureADOnlyAuthentications@2023-08-01-preview' = {
     name: 'Default'
     properties: {
@@ -1084,7 +1112,7 @@ output name string = dataFactoryPipeline.name
 output resourceId string = dataFactoryPipeline.id
 output databriksManagedResourceGroup string = managedResourceGroupName
 output location string = location
-output databricksWorkpaceUrl string = 'https://${databricksWorkpace.properties.workspaceUrl}'
+output databricksWorkspaceUrl string = 'https://${databricksWorkspace.properties.workspaceUrl}'
 output databricksKeyVaultName string = keyVaultName
 output databricksKeyVaultUrl string = kv.properties.vaultUri
 output databricksKeyVaultResourceId string = kv.id
