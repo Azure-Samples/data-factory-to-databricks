@@ -913,6 +913,7 @@ resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
     tenantId: tenantId
     enableSoftDelete: true
     softDeleteRetentionInDays: 90
+    enablePurgeProtection: true
     accessPolicies: []
     sku: {
       name: 'standard'
@@ -944,6 +945,35 @@ resource accountKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
     attributes: {
       exp: secretsExpirationDate
     }
+  }
+}
+
+resource kvDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'KeyVaultDiagSettings'
+  scope: kv
+  properties: {
+    logs: [
+      {
+        category: 'AuditEvent'
+        enabled: true
+        retentionPolicy: {
+          enabled: false
+          days: 0
+        }
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+        retentionPolicy: {
+          enabled: false
+          days: 0
+        }
+      }
+    ]
+    // Specify the destination for logs and metrics
+    workspaceId: logAnalyticsWorkspace.id // Log Analytics Workspace for storing logs
   }
 }
 

@@ -186,10 +186,9 @@ ORDER BY total_count DESC
 When you're done, delete the resources and the resource group:
 
 ```bash
-export DATABRICKS_KEY_VAULT_NAME=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksKeyVaultName.value --output tsv)
+# First Navigate to resource group locks, then delete of all them. Next, execute the script.
 
 az group delete -n $RESOURCEGROUP -y
-az keyvault purge --name $DATABRICKS_KEY_VAULT_NAME
 ```
 
 ## Contributions
