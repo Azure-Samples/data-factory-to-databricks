@@ -31,7 +31,9 @@ Like any good adventure, we need to prepare our environment:
 export LOCATION=<your chosen location>
 export RESOURCEGROUP_BASE_NAME=<your resource group name>
 export RESOURCEGROUP=${RESOURCEGROUP_BASE_NAME}-${LOCATION}
-export USERNAME=<your Azure username>
+export USERNAME=<your Azure username> # This user will be the database admin
+export USER_OBJECTID=<USERNAME object id in your tenant>
+export USER_TENANTID=<Your tenant>
 ```
 
 ### 3. Resource Group Creation
@@ -47,7 +49,7 @@ With our map in hand, we create a resource group in our chosen location:
 Using a Bicep template, we deploy the resources needed for our data processing quest:
 
 ```bash
-  az deployment group create -f ./main.bicep -g ${RESOURCEGROUP} -p administratorLoginPassword='changePass123!' username=${USERNAME}
+  az deployment group create -f ./main.bicep -g ${RESOURCEGROUP} -p username=${USERNAME} userObjectId=${USER_OBJECTID} userTenantId=${USER_TENANTID} secretsExpirationDate=$(date -d "+1 year" +"%s")
 ```
 
 ![Contoso’s Created Resources](Resources.jpg "Contoso’s Created Resources")
@@ -57,11 +59,10 @@ The Bicep template conjures up:
 - User identity for Azure Data Factory
 - Azure Data Lake, the previous identity is a collaborator.
 - Azure Databricks Workpace, the previous identity is a collaborator.
-- A Azure Data Fabrick Key vault, the previous identity is a collaborator. It includes SQL database secrets
+- A SQL Database which will allows only Microsoft Entra users, the previous identity is an user.
 - Azure Data Factory. The previous identity is asociated
   - The Azure Data Factory contains a Pipeline
-- A Databricks Key Vault. It includes Azure Data Lake secrets.
-- A SQL Database
+- A Databricks Key Vault. It includes Azure Data Lake secrets which will be used by databricks.
 
 The Tale of Data Transformation:
 
@@ -97,7 +98,7 @@ To create a personal access token, do the following:
     #  Upload databricks notebook using databriks cli
 
     # Authenticate databricks cli
-    export DATABRICKS_WORKPACE_URL=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksWorkpaceUrl.value --output tsv)
+    export DATABRICKS_WORKPACE_URL=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksWorkspaceUrl.value --output tsv)
     databricks configure --host $DATABRICKS_WORKPACE_URL
     # For the prompt Personal Access Token, enter the Azure Databricks personal access token for your workspace
 
@@ -132,10 +133,12 @@ Our data analyst, armed with insights, creates a star model in the SQL database 
 1. Navigate to the resource group using the Azure Portal.
 2. Select the SQL Database
 3. Select the Query Editor
-4. Enter your username and password. The first time you do this, you’ll need to configure the firewall by following the portal instructions.
+4. Enter with your the Microsoft Entra user provided to the script. The first time you do this, you’ll need to configure the firewall by following the portal instructions.
 5. Copy the code from ./sql/star_model.sql, and paste on the Query Editor
 6. Execute
 7. Review the table that was created and explore any [store procedures](https://learn.microsoft.com/azure/data-factory/connector-sql-server?tabs=data-factory#invoke-a-stored-procedure-from-a-sql-sink)
+8. **Grant permissions to the Azure Data Facrtory Managed Identity inside the Database**. Copy the code from ./UserManageIdentity.sql and paste it into the Query Editor.
+9. Execute the script.
 
 ### 8. Execute the Azure Data Factory Pipeline
 
@@ -161,18 +164,18 @@ Execute queries in the SQL Database to uncover the most popular names and trends
 ```sql
 -- most common female names used in New York in 2019
 SELECT top 10  n.first_name, SUM(f.count) AS total_count
-FROM fact_babynames f
-JOIN dim_names n ON f.nameSid = n.sid
-JOIN dim_years y ON f.yearSid = y.sid
+FROM [data].[fact_babynames] f
+JOIN [data].[dim_names] n ON f.nameSid = n.sid
+JOIN [data].[dim_years] y ON f.yearSid = y.sid
 WHERE n.sex = 'F' and y.year = 2019
 GROUP BY n.first_name
 ORDER BY total_count DESC
 
 -- Abel by year
 SELECT y.year, sum(f.count) as total_count
-FROM fact_babynames f
-JOIN dim_names n ON f.nameSid = n.sid
-JOIN dim_years y ON f.yearSid = y.sid
+FROM [data].[fact_babynames] f
+JOIN [data].[dim_names] n ON f.nameSid = n.sid
+JOIN [data].[dim_years] y ON f.yearSid = y.sid
 WHERE n.first_name= 'ABEL'
 GROUP BY y.year
 ORDER BY total_count DESC
@@ -183,12 +186,9 @@ ORDER BY total_count DESC
 When you're done, delete the resources and the resource group:
 
 ```bash
-export DATABRICKS_KEY_VAULT_NAME=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.databricksKeyVaultName.value --output tsv)
-export ADF_KEY_VAULT_NAME=$(az deployment group show -g ${RESOURCEGROUP} --name main --query properties.outputs.adfKeyVaultName.value --output tsv)
+# First Navigate to resource group locks, then delete of all them. Next, execute the script.
 
 az group delete -n $RESOURCEGROUP -y
-az keyvault purge --name $DATABRICKS_KEY_VAULT_NAME
-az keyvault purge --name $ADF_KEY_VAULT_NAME
 ```
 
 ## Contributions

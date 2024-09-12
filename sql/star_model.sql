@@ -5,23 +5,28 @@ GO
 
 SET QUOTED_IDENTIFIER ON
 GO
+
+-- Change to the new schema
+CREATE SCHEMA data;
+
+GO
 --------------dim names
-CREATE TABLE [dbo].[dim_names](
+CREATE TABLE [data].[dim_names](
 	[sid] [bigint] primary key,
 	[first_name]  [nvarchar](265) NULL,
 	[sex]  [nvarchar](10) NULL,
 ) 
 GO
 
-CREATE TYPE [dbo].[DimNamesType] AS TABLE(
+CREATE TYPE [data].[DimNamesType] AS TABLE(
     [sid] [bigint],
 	[first_name]  [nvarchar](265) NULL,
 	[sex]  [nvarchar](10) NULL
 )
 GO
 
-CREATE PROCEDURE spOverwriteDimNames
-    @DimNames [dbo].[DimNamesType] READONLY
+CREATE PROCEDURE [data].[spOverwriteDimNames]
+    @DimNames [data].[DimNamesType] READONLY
 AS
 BEGIN
     ;WITH DeduplicatedSource AS (
@@ -36,7 +41,7 @@ BEGIN
             first_name,
             sex
     )
-    MERGE [dbo].[dim_names] AS target
+    MERGE [data].[dim_names] AS target
     USING DeduplicatedSource AS source
     ON (target.sid = source.sid)
     WHEN MATCHED THEN
@@ -48,20 +53,20 @@ END
 GO
 
 --------------dim years
-CREATE TABLE [dbo].[dim_years](
+CREATE TABLE [data].[dim_years](
 	[sid] [bigint] primary key,
 	[year]  [int] NULL
 ) 
 GO
 
-CREATE TYPE [dbo].[DimYearsType] AS TABLE(
+CREATE TYPE [data].[DimYearsType] AS TABLE(
     [sid] [bigint],
 	[year]  [int] NULL
 )
 GO
 
-CREATE PROCEDURE spOverwriteDimYears
-    @DimYears [dbo].[DimYearsType] READONLY
+CREATE PROCEDURE [data].[spOverwriteDimYears]
+    @DimYears [data].[DimYearsType] READONLY
 AS
 BEGIN
     ;WITH DeduplicatedSource AS (
@@ -74,7 +79,7 @@ BEGIN
             sid,
             year
     )
-MERGE [dbo].[dim_years] AS target
+MERGE [data].[dim_years] AS target
 USING DeduplicatedSource AS source
 ON (target.sid = source.sid)
 WHEN MATCHED THEN
@@ -85,20 +90,20 @@ WHEN NOT MATCHED THEN
 END
 GO
 --------------dim locations
-CREATE TABLE [dbo].[dim_locations](
+CREATE TABLE [data].[dim_locations](
 	[sid] [bigint] primary key,
 	[county]  [nvarchar](265) NULL
 ) 
 GO
 
-CREATE TYPE [dbo].[DimLocationsType] AS TABLE(
+CREATE TYPE [data].[DimLocationsType] AS TABLE(
     [sid] [bigint],
 	[county]  [nvarchar](265) NULL
 )
 GO
 
-CREATE PROCEDURE spOverwriteDimLocations
-    @DimLocations [dbo].[DimLocationsType] READONLY
+CREATE PROCEDURE [data].[spOverwriteDimLocations]
+    @DimLocations [data].[DimLocationsType] READONLY
 AS
 BEGIN
     ;WITH DeduplicatedSource AS (
@@ -111,7 +116,7 @@ BEGIN
             sid,
             county
     )
-MERGE [dbo].[dim_locations] AS target
+MERGE [data].[dim_locations] AS target
 USING DeduplicatedSource AS source
 ON (target.sid = source.sid)
 WHEN MATCHED THEN
@@ -122,7 +127,7 @@ WHEN NOT MATCHED THEN
 END
 GO
 ----------------------fact_babynames
-CREATE TABLE [dbo].[fact_babynames](
+CREATE TABLE [data].[fact_babynames](
 	[sid] [bigint] primary key,
 	[nameSid] [bigint] NULL,
 	[yearSid] [bigint] NULL,
@@ -131,7 +136,7 @@ CREATE TABLE [dbo].[fact_babynames](
 ) 
 GO
 
-CREATE TYPE [dbo].[FactBabyNamesType] AS TABLE(
+CREATE TYPE [data].[FactBabyNamesType] AS TABLE(
     [sid] [bigint],
 	[nameSid] [bigint] NULL,
 	[yearSid] [bigint] NULL,
@@ -141,21 +146,21 @@ CREATE TYPE [dbo].[FactBabyNamesType] AS TABLE(
 GO
 
 -- Alter the FactBabyNames table to add the foreign key constraint
-ALTER TABLE [dbo].[fact_babynames]
+ALTER TABLE [data].[fact_babynames]
 ADD CONSTRAINT FK_fact_babynames_dim_names FOREIGN KEY (nameSid)
-REFERENCES [dbo].[dim_names] (sid);
+REFERENCES [data].[dim_names] (sid);
 GO
-ALTER TABLE [dbo].[fact_babynames]
+ALTER TABLE [data].[fact_babynames]
 ADD CONSTRAINT FK_fact_babynames_dim_year FOREIGN KEY (yearSid)
-REFERENCES [dbo].[dim_years] (sid);
+REFERENCES [data].[dim_years] (sid);
 GO
-ALTER TABLE [dbo].[fact_babynames]
+ALTER TABLE [data].[fact_babynames]
 ADD CONSTRAINT FK_fact_babynames_dim_location FOREIGN KEY (locationSid)
-REFERENCES [dbo].[dim_locations] (sid);
+REFERENCES [data].[dim_locations] (sid);
 GO
 
-CREATE PROCEDURE spOverwriteFactBabyNamesType
-    @FactBabyNames [dbo].[FactBabyNamesType] READONLY
+CREATE PROCEDURE [data].[spOverwriteFactBabyNamesType]
+    @FactBabyNames [data].[FactBabyNamesType] READONLY
 AS
 BEGIN
     ;WITH DeduplicatedSource AS (
@@ -181,7 +186,7 @@ BEGIN
         WHERE
             row_num = 1
     )
-MERGE [dbo].[fact_babynames] AS target
+MERGE [data].[fact_babynames] AS target
 USING FilteredSource AS source
 ON (target.sid = source.sid)
 WHEN MATCHED THEN
